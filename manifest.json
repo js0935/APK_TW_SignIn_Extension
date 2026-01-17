@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "APK.TW 自動簽到",
+  "version": "1.0.0",
+  "description": "自動為 APK.TW 論壇進行每日簽到",
+  "author": "Extension Developer",
+  "homepage_url": "https://apk.tw",
+  
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  
+  "host_permissions": [
+    "https://apk.tw/*"
+  ],
+  
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://apk.tw;"
+  },
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["https://apk.tw/*"],
+      "js": ["zero-csp.js"],
+      "run_at": "document_end",
+      "world": "ISOLATED"
+    }
+  ],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "APK.TW 自動簽到",
+    "default_icon": {
+      "16": "icons/icon16.svg",
+      "48": "icons/icon48.svg",
+      "128": "icons/icon128.svg"
+    }
+  },
+  
+  "icons": {
+    "16": "icons/icon16.svg",
+    "48": "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": [],
+      "matches": ["https://apk.tw/*"]
+    }
+  ]
+}
