@@ -23,10 +23,15 @@ class APKTwPopup {
       this.manualSignIn();
     });
 
-    // 打開 APK.TW 按鈕
-    document.getElementById('open-apk').addEventListener('click', () => {
-      this.openAPKTw();
-    });
+     // 測試自動簽到按鈕
+     document.getElementById('test-auto-signin').addEventListener('click', () => {
+       this.testAutoSignIn();
+     });
+
+     // 打開 APK.TW 按鈕
+     document.getElementById('open-apk').addEventListener('click', () => {
+       this.openAPKTw();
+     });
 
     // 設置變更
     document.getElementById('auto-signin').addEventListener('change', (e) => {
@@ -138,9 +143,36 @@ class APKTwPopup {
       signInBtn.textContent = originalText;
       signInBtn.disabled = false;
     }
-  }
+   }
 
-  async openAPKTw() {
+   async testAutoSignIn() {
+     try {
+       const btn = document.getElementById('test-auto-signin');
+       const originalText = btn.textContent;
+       btn.textContent = '測試中...';
+       btn.disabled = true;
+
+       chrome.runtime.sendMessage({ action: 'executeAutoSignIn' }, (response) => {
+         if (response && response.success) {
+           this.showSuccess('測試自動簽到完成，請檢查日誌');
+         } else {
+           this.showError('測試失敗: ' + (response?.error || '未知錯誤'));
+         }
+
+         // 重新載入日誌
+         this.loadLogs();
+
+         // 恢復按鈕狀態
+         btn.textContent = originalText;
+         btn.disabled = false;
+       });
+     } catch (error) {
+       console.error('測試自動簽到失敗:', error);
+       this.showError('測試失敗: ' + error.message);
+     }
+   }
+
+   async openAPKTw() {
     try {
       await chrome.tabs.create({
         url: 'https://apk.tw/forum.php',
