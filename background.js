@@ -87,14 +87,33 @@ class APKTwBackground {
       let tab = tabs.find(t => t.url.includes('apk.tw'));
 
       if (!tab) {
+        console.log('[APK.TW] 未找到 APK.TW 標籤頁，創建新標籤頁');
         tab = await chrome.tabs.create({
           url: 'https://apk.tw/forum.php',
           active: false
         });
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log('[APK.TW] 已創建標籤頁 ID:', tab.id, '等待載入...');
+        
+        // 等待標籤頁載入完成
+        await new Promise(resolve => {
+          const listener = (updatedTabId, changeInfo, updatedTab) => {
+            if (updatedTabId === tab.id && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener);
+              console.log('[APK.TW] 標籤頁載入完成');
+              setTimeout(resolve, 2000); // 額外等待2秒確保頁面完全載入
+            }
+          };
+          chrome.tabs.onUpdated.addListener(listener);
+          
+          // 設置超時，避免無限等待
+          setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }, 10000);
+        });
       }
 
-      const result = await this.manualSignIn();
+      const result = await this.manualSignInWithTab(tab.id);
 
       if (result && result.success) {
         await this.addLog('自動簽到成功', true);
@@ -190,6 +209,10 @@ class APKTwBackground {
         this.manualSignIn().then(result => sendResponse(result)).catch(error => sendResponse({ error: error.message }));
         return true;
         
+      case 'manualSignInWithTab':
+        this.manualSignInWithTab(message.tabId).then(result => sendResponse(result)).catch(error => sendResponse({ error: error.message }));
+        return true;
+        
       case 'executeSafeSignIn':
         this.executeSafeSignIn(message.data).then(result => sendResponse(result)).catch(error => sendResponse({ error: error.message }));
         return true;
@@ -260,28 +283,65 @@ class APKTwBackground {
         };
       }
 
-      // 使用腳本執行手動簽到
+      return await this.manualSignInWithTab(tab.id);
+    } catch (error) {
+      console.error('[APK.TW] 手動簽到失敗:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async manualSignInWithTab(tabId) {
+    try {
+      // 確保標籤頁已載入完成
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 使用腳本執行簽到
       const result = await this.executeScript({
         func: () => {
           try {
-            const signInBtn = document.getElementById('my_amupper');
+            console.log('[APK.TW] 頁面載入狀態:', document.readyState);
+            console.log('[APK.TW] 頁面URL:', window.location.href);
+            
+            // 檢查是否已登入
+            const loginLink = document.querySelector('a[href*="member.php?mod=logging"]');
+            if (loginLink && loginLink.textContent.includes('登錄')) {
+              return { success: false, message: '尚未登入帳號' };
+            }
+            
+            // 嘗試多種方式找到簽到按鈕
+            let signInBtn = document.getElementById('my_amupper');
+            
+            // 如果找不到，嘗試其他選擇器
+            if (!signInBtn) {
+              signInBtn = document.querySelector('a[href*="plugin.php?id=dsu_amupper"]');
+            }
+            
+            if (!signInBtn) {
+              signInBtn = document.querySelector('a.amupper');
+            }
+            
+            console.log('[APK.TW] 簽到按鈕:', signInBtn);
+            
             if (signInBtn) {
               signInBtn.click();
               return { success: true, message: '已發送簽到請求' };
             } else {
-              return { success: false, message: '找不到簽到按鈕' };
+              return { success: false, message: '找不到簽到按鈕，可能需要先登入' };
             }
           } catch (e) {
             return { success: false, error: '簽到失敗: ' + e.message };
           }
         },
-        target: { tabId: tab.id }
+        target: { tabId: tabId }
       });
 
-      console.log('[APK.TW] 手動簽到結果:', result);
+      console.log('[APK.TW] 簽到結果:', result);
       return result || { success: false, error: '未知錯誤' };
     } catch (error) {
-      console.error('[APK.TW] 手動簽到失敗:', error);
+      console.error('[APK.TW] 簽到失敗:', error);
       return {
         success: false,
         error: error.message
