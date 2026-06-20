@@ -112,8 +112,7 @@ class APKTwBackground {
                 credentials: 'include',
                 headers: {
                   'Accept': 'application/json, text/plain, */*',
-                  'X-Requested-With': 'XMLHttpRequest',
-                  'Referer': window.location.href
+                  'X-Requested-With': 'XMLHttpRequest'
                 }
               });
               const text = await res.text();
