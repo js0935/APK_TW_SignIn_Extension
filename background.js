@@ -57,6 +57,7 @@ class APKTwBackground {
   async signInViaAPI() {
     if (this._signingIn) return { success: false, error: '簽到進行中，請稍候' };
     this._signingIn = true;
+    await chrome.storage.local.set({ apk_tw_signing_in: true });
     let createdByUs = false;
     try {
       let tab = (await chrome.tabs.query({ url: 'https://apk.tw/*' })).find(t => t.url?.includes('apk.tw'));
@@ -108,23 +109,30 @@ class APKTwBackground {
             ];
 
             for (const url of urls) {
-              const res = await fetch(url, {
-                method: 'GET',
-                credentials: 'include',
-                headers: {
-                  'Accept': 'application/json, text/plain, */*',
-                  'X-Requested-With': 'XMLHttpRequest'
+              for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                  const res = await fetch(url, {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {
+                      'Accept': 'application/json, text/plain, */*',
+                      'X-Requested-With': 'XMLHttpRequest'
+                    }
+                  });
+                  const text = await res.text();
+                  if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
+                    return { success: true, message: '簽到成功' };
+                  }
+                  if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+                    return { success: true, alreadySigned: true, message: '今日已簽到' };
+                  }
+                  if (text.length > 0 && !text.startsWith('<!')) {
+                    return { success: true, message: text.slice(0, 100) };
+                  }
+                } catch (e) {
+                  if (attempt === 1) throw e;
+                  await new Promise(r => setTimeout(r, 1000));
                 }
-              });
-              const text = await res.text();
-              if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
-                return { success: true, message: '簽到成功' };
-              }
-              if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
-                return { success: true, alreadySigned: true, message: '今日已簽到' };
-              }
-              if (text.length > 0 && !text.startsWith('<!')) {
-                return { success: true, message: text.slice(0, 100) };
               }
             }
 
@@ -139,7 +147,8 @@ class APKTwBackground {
             return { success: false, error: e.message };
           }
         },
-        target: { tabId: tab.id }
+        target: { tabId: tab.id },
+        world: 'MAIN'
       });
 
       if (createdByUs) chrome.tabs.remove(tab.id).catch(() => {});
@@ -150,6 +159,7 @@ class APKTwBackground {
       return { success: false, error: `簽到請求失敗: ${error.message}` };
     } finally {
       this._signingIn = false;
+      chrome.storage.local.remove('apk_tw_signing_in').catch(() => {});
     }
   }
 
@@ -261,11 +271,9 @@ class APKTwBackground {
             if (loginLink && loginLink.textContent.includes('登錄')) {
               return { success: false, message: '尚未登入帳號' };
             }
-
             let btn = document.getElementById('my_amupper');
             if (!btn) btn = document.querySelector('a[href*="plugin.php?id=dsu_amupper"]');
             if (!btn) btn = document.querySelector('a.amupper');
-
             if (btn) {
               btn.click();
               return { success: true, message: '已發送簽到請求' };
@@ -275,7 +283,8 @@ class APKTwBackground {
             return { success: false, error: `簽到失敗: ${e.message}` };
           }
         },
-        target: { tabId }
+        target: { tabId },
+        world: 'MAIN'
       });
 
       return result[0]?.result || { success: false, error: '未知錯誤' };
@@ -292,29 +301,29 @@ class APKTwBackground {
       const result = await chrome.scripting.executeScript({
         func: async () => {
           try {
+            if (window.location.href.includes('plugin.php') && window.location.href.includes('dsu_amupper')) {
+              return { success: false, error: '已在簽到頁面，跳過' };
+            }
             const link = document.getElementById('my_amupper') ||
                          document.querySelector('a[href*="dsu_amupper"]') ||
                          document.querySelector('a.amupper');
-
             if (!link) return { success: false, error: '找不到簽到按鈕' };
-
             const isSigned = () => new Promise(r => {
               chrome.storage.local.get('apk_tw_signed_today', d => {
                 r(d.apk_tw_signed_today === new Date().toDateString());
               });
             });
             if (await isSigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
-
             link.click();
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 4000));
             if (await isSigned()) return { success: true, message: '簽到成功' };
-
             return { success: false, error: '點擊按鈕後未偵測到簽到成功' };
           } catch (e) {
             return { success: false, error: e.message };
           }
         },
-        target: { tabId: tab.id }
+        target: { tabId: tab.id },
+        world: 'MAIN'
       });
       return result[0]?.result || { success: false, error: '執行失敗' };
     } catch (error) {

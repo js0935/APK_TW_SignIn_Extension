@@ -72,13 +72,18 @@
           return;
         }
 
+        const flag = await chrome.storage.local.get('apk_tw_signing_in');
+        if (flag.apk_tw_signing_in) {
+          log('背景正在簽到中，跳過');
+          return;
+        }
+
         if (window.location.href.includes('plugin.php') && window.location.href.includes('dsu_amupper')) {
-          log('已在簽到頁面，跳過按鈕點擊');
+          log('已在簽到頁面，跳過');
           return;
         }
 
         const link = getSignInLink();
-
         const formhash = getFormhash();
         const baseUrl = link && link.href ? link.href : ENDPOINT;
 
@@ -88,26 +93,39 @@
         ];
 
         for (const url of urls) {
-          log(`嘗試URL: ${window.location.origin}${url.replace(formhash, '***')}`);
-          const res = await fetch(window.location.origin + url, {
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-              'Accept': 'application/json, text/plain, */*',
-              'X-Requested-With': 'XMLHttpRequest'
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              log(`嘗試URL: ${window.location.origin}${url.replace(formhash, '***')}`);
+              const res = await fetch(window.location.origin + url, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                  'Accept': 'application/json, text/plain, */*',
+                  'X-Requested-With': 'XMLHttpRequest'
+                }
+              });
+              const text = await res.text();
+              if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
+                log('簽到成功');
+                await addLog('內容腳本自動簽到成功', true);
+                this.notify('APK.TW 簽到成功');
+                return;
+              }
+              if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+                log('今日已簽到');
+                await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+                return;
+              }
+              if (text.length > 0 && !text.startsWith('<!')) {
+                log('非HTML回應，視為成功');
+                await addLog('內容腳本簽到成功', true);
+                return;
+              }
+              break;
+            } catch (e) {
+              if (attempt === 1) throw e;
+              await new Promise(r => setTimeout(r, 1000));
             }
-          });
-          const text = await res.text();
-          if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
-            log('簽到成功');
-            await addLog('內容腳本自動簽到成功', true);
-            this.notify('APK.TW 簽到成功');
-            return;
-          }
-          if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
-            log('今日已簽到');
-            await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
-            return;
           }
         }
 
