@@ -55,9 +55,13 @@ class APKTwBackground {
   }
 
   async signInViaAPI() {
+    if (this._signingIn) return { success: false, error: '簽到進行中，請稍候' };
+    this._signingIn = true;
+    let createdByUs = false;
     try {
       let tab = (await chrome.tabs.query({ url: 'https://apk.tw/*' })).find(t => t.url?.includes('apk.tw'));
       if (!tab) {
+        createdByUs = true;
         tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: false });
         await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -78,14 +82,16 @@ class APKTwBackground {
       const result = await chrome.scripting.executeScript({
         func: async () => {
           try {
+            if (window.location.href.includes('plugin.php') && window.location.href.includes('dsu_amupper')) {
+              return { success: false, error: '已在簽到頁面，跳過' };
+            }
+
             const fh = (document.querySelector('input[name="formhash"]')?.value) ||
                        (document.documentElement.innerHTML.match(/formhash=([a-f0-9]+)/i)?.[1]) || '';
 
             const link = document.getElementById('my_amupper') ||
                          document.querySelector('a[href*="dsu_amupper"]') ||
                          document.querySelector('a.amupper');
-
-            if (!link) return { success: false, error: '找不到簽到按鈕' };
 
             const isSigned = () => new Promise(r => {
               chrome.storage.local.get('apk_tw_signed_today', d => {
@@ -94,16 +100,11 @@ class APKTwBackground {
             });
             if (await isSigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
 
-            link.click();
-
-            await new Promise(r => setTimeout(r, 4000));
-
-            if (await isSigned()) return { success: true, message: '簽到成功' };
+            const baseUrl = link && link.href ? link.href : '/plugin.php?id=dsu_amupper:pper';
 
             const urls = [
-              (link.href || '/plugin.php?id=dsu_amupper:pper') + '&infloat=1&ajax=1' + (fh ? '&formhash=' + fh : ''),
-              (link.href || '/plugin.php?id=dsu_amupper:pper') + '&ajax=1' + (fh ? '&formhash=' + fh : '') + '&ppersubmit=1',
-              (link.href || '/plugin.php?id=dsu_amupper:pper') + '&ppersubmit=1' + (fh ? '&formhash=' + fh : '')
+              baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (fh ? '&formhash=' + fh : ''),
+              baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'ajax=1' + (fh ? '&formhash=' + fh : '') + '&ppersubmit=1'
             ];
 
             for (const url of urls) {
@@ -127,8 +128,11 @@ class APKTwBackground {
               }
             }
 
-            await new Promise(r => setTimeout(r, 2000));
-            if (await isSigned()) return { success: true, message: '簽到成功' };
+            if (link) {
+              link.click();
+              await new Promise(r => setTimeout(r, 4000));
+              if (await isSigned()) return { success: true, message: '簽到成功' };
+            }
 
             return { success: false, error: '所有簽到方式皆失敗' };
           } catch (e) {
@@ -138,12 +142,14 @@ class APKTwBackground {
         target: { tabId: tab.id }
       });
 
-      if (!tab.url?.includes('apk.tw')) chrome.tabs.remove(tab.id).catch(() => {});
+      if (createdByUs) chrome.tabs.remove(tab.id).catch(() => {});
       const r = result[0]?.result || {};
       if (!r.success && !r.error) r.error = r.message || '簽到失敗';
       return r;
     } catch (error) {
       return { success: false, error: `簽到請求失敗: ${error.message}` };
+    } finally {
+      this._signingIn = false;
     }
   }
 

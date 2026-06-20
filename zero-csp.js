@@ -72,19 +72,12 @@
           return;
         }
 
-        const link = getSignInLink();
-
-        if (link) {
-          log('點擊簽到按鈕');
-          link.click();
-          await new Promise(r => setTimeout(r, 4000));
-          if (await isTodaySigned()) {
-            log('按鈕簽到成功');
-            await addLog('內容腳本按鈕簽到成功', true);
-            this.notify('APK.TW 簽到成功');
-            return;
-          }
+        if (window.location.href.includes('plugin.php') && window.location.href.includes('dsu_amupper')) {
+          log('已在簽到頁面，跳過按鈕點擊');
+          return;
         }
+
+        const link = getSignInLink();
 
         const formhash = getFormhash();
         const baseUrl = link && link.href ? link.href : ENDPOINT;
@@ -114,6 +107,18 @@
           if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
             log('今日已簽到');
             await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+            return;
+          }
+        }
+
+        if (link) {
+          log('點擊簽到按鈕');
+          link.click();
+          await new Promise(r => setTimeout(r, 4000));
+          if (await isTodaySigned()) {
+            log('按鈕簽到成功');
+            await addLog('內容腳本按鈕簽到成功', true);
+            this.notify('APK.TW 簽到成功');
             return;
           }
         }
