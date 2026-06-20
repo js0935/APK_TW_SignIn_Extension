@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "APK.TW 自動簽到",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "自動為 APK.TW 論壇進行每日簽到",
   "author": "Extension Developer",
   "homepage_url": "https://apk.tw",
@@ -11,7 +11,8 @@
     "activeTab",
     "scripting",
     "alarms",
-    "notifications"
+    "notifications",
+    "cookies"
   ],
   
   "host_permissions": [
@@ -49,12 +50,4 @@
     "16": "icons/icon16.svg",
     "48": "icons/icon48.svg",
     "128": "icons/icon128.svg"
-  },
-  
-  "web_accessible_resources": [
-    {
-      "resources": [],
-      "matches": ["https://apk.tw/*"]
-    }
-  ]
-}
+  }}

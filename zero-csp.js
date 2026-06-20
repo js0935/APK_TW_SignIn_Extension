@@ -1,243 +1,154 @@
-// 零兼容性問題的最終版本
-(function() {
+(function () {
   'use strict';
-  
-  // 防止重複初始化
-  if (window.zeroCSPInitialized) return;
-  window.zeroCSPInitialized = true;
 
-  const CONFIG = {
-    SIGNIN_ENDPOINT: '/plugin.php?id=dsu_amupper:pper&ajax=1',
-    SUCCESS_INDICATORS: ['簽到成功', 'success', '已簽到', 'complete', 'ok'],
-    ERROR_INDICATORS: ['error', '失敗', 'failure', 'already'],
-    DELAY: 1500,
-    TIMEOUT: 5000,
-    LOG_PREFIX: '[APK.TW]'
-  };
+  if (window.__apkSignerInited) return;
+  window.__apkSignerInited = true;
 
-  // 最小化的日誌函數
-  function log(message, type) {
+  const PREFIX = '[APK.TW]';
+  const ENDPOINT = '/plugin.php?id=dsu_amupper:pper';
+  const DELAY = 1500;
+
+  const SIGNED_KEY = 'apk_tw_signed_today';
+  const LOGS_KEY = 'apk_tw_logs';
+
+  function log(msg) {
+    try { console.log(`%c${PREFIX}%c ${msg}`, 'background:#667eea;color:white;padding:2px 4px;border-radius:3px', 'color:#666'); } catch (e) { }
+  }
+
+  async function isTodaySigned() {
     try {
-      // 檢查是否有 console
-      if (typeof console !== 'undefined' && console.log) {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`%c${CONFIG.LOG_PREFIX}%c ${timestamp}%c ${message}`, 
-                  'background: #667eea; color: white; padding: 2px 4px; border-radius: 3px;',
-                  'background: #f0f0f0; color: #333; padding: 2px 4px; border-radius: 3px;',
-                  'background: transparent; color: #666;');
-      }
-    } catch (e) {
-      // 完全無日誌，忽略
-    }
+      const data = await chrome.storage.local.get(SIGNED_KEY);
+      return data[SIGNED_KEY] === new Date().toDateString();
+    } catch { return false; }
   }
 
-  // 主類
-  class UltimateZeroCSPPureSigner {
+  async function addLog(message, success) {
+    try {
+      const data = await chrome.storage.local.get({ [LOGS_KEY]: [] });
+      const logs = data[LOGS_KEY];
+      logs.unshift({ timestamp: Date.now(), message, success });
+      if (logs.length > 50) logs.pop();
+      await chrome.storage.local.set({ [LOGS_KEY]: logs });
+      if (success) {
+        await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+      }
+    } catch (e) { log(`寫入日誌失敗: ${e.message}`); }
+  }
+
+  function getFormhash() {
+    const el = document.querySelector('input[name="formhash"]');
+    if (el && el.value) return el.value;
+    const m = document.documentElement.innerHTML.match(/formhash=([a-f0-9]+)/i);
+    return m ? m[1] : '';
+  }
+
+  function getSignInLink() {
+    return document.getElementById('my_amupper') || document.querySelector('a[href*="dsu_amupper"]');
+  }
+
+  class AutoSigner {
     constructor() {
-      this.attempted = false;
-      this.init();
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => this.schedule());
+      } else {
+        this.schedule();
+      }
     }
 
-    init() {
-      if (this.attempted) return;
-      this.attempted = true;
-      
-      // 使用多種延遲方式，確保頁面載入
+    schedule() {
       if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-          this.trySignIn();
-        }, { timeout: CONFIG.DELAY });
+        requestIdleCallback(() => this.trySign(), { timeout: DELAY });
       } else {
-        setTimeout(() => {
-          this.trySignIn();
-        }, CONFIG.DELAY);
+        setTimeout(() => this.trySign(), DELAY);
       }
     }
 
-    async trySignIn() {
+    async trySign() {
       try {
-        log('開始零 CSP 簽到', 'info');
-        
-        // 基本檢查
-        if (!this.canProceed()) {
-          log('條件不滿足，跳過簽到', 'warn');
+        log('開始自動簽到');
+
+        if (await isTodaySigned()) {
+          log('今日已簽到，跳過');
           return;
         }
 
-        // 構建 URL
-        const url = this.buildUrl();
-        if (!url) {
-          log('URL 構建失敗', 'error');
+        const link = getSignInLink();
+
+        if (link) {
+          log('點擊簽到按鈕');
+          link.click();
+          await new Promise(r => setTimeout(r, 4000));
+          if (await isTodaySigned()) {
+            log('按鈕簽到成功');
+            await addLog('內容腳本按鈕簽到成功', true);
+            this.notify('APK.TW 簽到成功');
+            return;
+          }
+        }
+
+        const formhash = getFormhash();
+        const baseUrl = link && link.href ? link.href : ENDPOINT;
+
+        const urls = [
+          baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (formhash ? '&formhash=' + formhash : ''),
+          baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'ajax=1' + (formhash ? '&formhash=' + formhash : '') + '&ppersubmit=1'
+        ];
+
+        for (const url of urls) {
+          log(`嘗試URL: ${window.location.origin}${url.replace(formhash, '***')}`);
+          const res = await fetch(window.location.origin + url, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json, text/plain, */*',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Referer': window.location.href
+            }
+          });
+          const text = await res.text();
+          if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
+            log('簽到成功');
+            await addLog('內容腳本自動簽到成功', true);
+            this.notify('APK.TW 簽到成功');
+            return;
+          }
+          if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+            log('今日已簽到');
+            await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+            return;
+          }
+        }
+
+        if (await isTodaySigned()) {
+          log('延遲檢查簽到成功');
+          await addLog('內容腳本延遲簽到成功', true);
           return;
         }
 
-        // 執行 AJAX
-        await this.executeAJAX(url);
-      } catch (error) {
-        log('簽到嘗試失敗: ' + error.message, 'error');
-      }
-    }
-
-    canProceed() {
-      try {
-        // 檢查網站
-        const href = window.location.href;
-        if (!href || !href.includes('apk.tw')) {
-          log('不在 APK.TW 網站', 'warn');
-          return false;
-        }
-
-        // 檢查是否可以簽到（避免複雜的 DOM 操作）
-        // 這裡簡化檢查，不訪問任何 DOM 元素
-        return true;
+        log('所有簽到方式皆失敗');
+        await addLog('內容腳本簽到失敗: 所有方式皆失敗', false);
       } catch (e) {
-        log('條件檢查失敗: ' + e.message, 'error');
-        return false;
+        log(`簽到異常: ${e.message}`);
+        await addLog(`內容腳本簽到異常: ${e.message}`, false);
       }
     }
 
-    buildUrl() {
-      try {
-        let origin = window.location.origin;
-        if (!origin) {
-          origin = 'https://apk.tw';
-        }
-        
-        const url = origin + CONFIG.SIGNIN_ENDPOINT;
-        log('構建簽到 URL: ' + url, 'info');
-        return url;
-      } catch (e) {
-        log('URL 構建失敗: ' + e.message, 'error');
-        return null;
-      }
-    }
-
-    async executeAJAX(url) {
-      try {
-        log('執行 AJAX 簽到', 'info');
-        
-        // 構建請求配置
-        const requestConfig = {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Cache-Control': 'no-cache'
-          },
-          cache: 'no-store'
-        };
-
-        // 執行請求
-        const response = await fetch(url, requestConfig);
-        
-        log('響應狀態: ' + response.status, 'info');
-        
-        // 檢查響應
-        if (response.ok) {
-          this.handleSuccess();
-        } else {
-          this.handleFailure();
-        }
-      } catch (error) {
-        log('AJAX 請求失敗: ' + error.message, 'error');
-        this.handleFailure(error);
-      }
-    }
-
-    handleSuccess() {
-      try {
-        log('簽到成功', 'success');
-        this.showNotification('✅ APK.TW 簽到成功', 'success');
-      } catch (e) {
-        log('成功處理失敗: ' + e.message, 'error');
-      }
-    }
-
-    handleFailure(error) {
-      try {
-        const errorMsg = error ? error.message : '簽到失敗';
-        log(errorMsg, 'error');
-        this.showNotification('❌ APK.TW 簽到失敗', 'error');
-      } catch (e) {
-        log('失敗處理失敗: ' + e.message, 'error');
-      }
-    }
-
-    showNotification(message, type) {
-      try {
-        log('顯示通知: ' + message, 'info');
-        
-        // 方法1: 使用頁面標題（最安全）
-        const originalTitle = document.title;
-        
-        // 安全地設置標題
-        try {
-          if (document.title !== undefined) {
-            document.title = message;
-          }
-        } catch (e) {
-          log('標題設置失敗', 'error');
-        }
-        
-        // 方法2: 嘗試使用地址欄（可能的替代方案）
-        try {
-          if (window.location && window.location.hash !== '#notified') {
-            window.location.hash = 'notified';
-          }
-        } catch (e) {
-          log('Hash 設置失敗', 'error');
-        }
-        
-        // 方法3: 使用 console.log 作為替代
-        setTimeout(() => {
-          try {
-            if (typeof console !== 'undefined' && console.log) {
-              console.log(`%c${message}`, 'background: #4CAF50; color: white; padding: 4px 8px; border-radius: 4px;');
-            }
-          } catch (e) {
-            log('Console 無法使用', 'warn');
-          }
-        }, 1000);
-
-        // 方法4: 恢復
-        setTimeout(() => {
-          try {
-            if (document.title !== undefined && document.title === message) {
-              document.title = originalTitle;
-            }
-            if (window.location && window.location.hash === '#notified') {
-              window.location.hash = '';
-            }
-          } catch (e) {
-            log('恢復失敗', 'warn');
-          }
-        }, 5000);
-
-      } catch (e) {
-        log('通知顯示完全失敗: ' + e.message, 'error');
-      }
+    notify(msg) {
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.style.cssText =
+        'position:fixed;top:60px;right:16px;background:#4CAF50;color:#fff;' +
+        'padding:10px 18px;border-radius:8px;font-size:14px;z-index:99999;' +
+        'box-shadow:0 4px 12px rgba(0,0,0,.2);animation:fadeInOut 4s ease';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
     }
   }
 
-  // 初始化
-  try {
-    // 使用最安全的初始化方式
-    if (document.readyState === 'loading') {
-      if (typeof document.addEventListener !== 'undefined') {
-        document.addEventListener('DOMContentLoaded', function() {
-          new UltimateZeroCSPPureSigner();
-        });
-      } else {
-        // 備用方案
-        setTimeout(() => {
-          new UltimateZeroCSPPureSigner();
-        }, 2000);
-      }
-    } else {
-      setTimeout(() => {
-        new UltimateZeroCSPPureSigner();
-      }, 500);
-    }
-  } catch (e) {
-    // 完全失敗，什麼都不做
-  }
+  const s = document.createElement('style');
+  s.textContent =
+    '@keyframes fadeInOut{0%{opacity:0;transform:translateY(-10px)}15%{opacity:1;transform:translateY(0)}85%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-10px)}}';
+  document.head.appendChild(s);
+
+  new AutoSigner();
 })();
