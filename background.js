@@ -118,14 +118,8 @@ class APKTwBackground {
             for (const url of urls) {
               for (let attempt = 0; attempt < 2; attempt++) {
                 try {
-                  const res = await fetch(url, {
-                    method: 'GET',
-                    credentials: 'include',
-                    headers: {
-                      'Accept': 'application/json, text/plain, */*',
-                      'X-Requested-With': 'XMLHttpRequest'
-                    }
-                  });
+                  const fullUrl = url.startsWith('http') ? url : location.origin + url;
+                  const res = await fetch(fullUrl, { method: 'GET' });
                   const text = await res.text();
                   if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
                     return { success: true, message: '簽到成功' };
@@ -137,7 +131,9 @@ class APKTwBackground {
                     return { success: true, message: text.slice(0, 100) };
                   }
                 } catch (e) {
-                  if (attempt === 1) throw e;
+                  if (attempt === 1) {
+                    return { success: false, error: `fetch失敗: ${e.message} | pageUrl: ${pageUrl} | url: ${url}` };
+                  }
                   await new Promise(r => setTimeout(r, 1000));
                 }
               }

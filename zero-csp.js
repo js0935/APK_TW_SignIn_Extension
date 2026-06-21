@@ -113,15 +113,9 @@
         for (const url of urls) {
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
-              log(`嘗試URL: ${window.location.origin}${url.replace(formhash, '***')}`);
-              const res = await fetch(window.location.origin + url, {
-                method: 'GET',
-                credentials: 'include',
-                headers: {
-                  'Accept': 'application/json, text/plain, */*',
-                  'X-Requested-With': 'XMLHttpRequest'
-                }
-              });
+              const fullUrl = url.startsWith('http') ? url : window.location.origin + url;
+              log(`嘗試URL: ${fullUrl.replace(formhash, '***')}`);
+              const res = await fetch(fullUrl, { method: 'GET' });
               const text = await res.text();
               if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
                 log('簽到成功');
@@ -141,7 +135,10 @@
               }
               break;
             } catch (e) {
-              if (attempt === 1) throw e;
+              if (attempt === 1) {
+                await addLog(`fetch失敗: ${e.message} | url: ${url}`, false);
+                return;
+              }
               await new Promise(r => setTimeout(r, 1000));
             }
           }
