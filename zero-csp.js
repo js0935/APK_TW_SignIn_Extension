@@ -97,7 +97,13 @@
 
         const link = getSignInLink();
         const formhash = getFormhash();
-        const baseUrl = link && link.href ? link.href : ENDPOINT;
+        const getBaseUrl = () => {
+          if (!link || !link.href) return ENDPOINT;
+          const h = link.href;
+          if (h === 'javascript:;' || h === '#' || h === '' || h.startsWith('javascript:')) return ENDPOINT;
+          return h;
+        };
+        const baseUrl = getBaseUrl();
 
         const urls = [
           baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (formhash ? '&formhash=' + formhash : ''),

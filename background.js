@@ -94,6 +94,13 @@ class APKTwBackground {
                          document.querySelector('a[href*="dsu_amupper"]') ||
                          document.querySelector('a.amupper');
 
+            const getBaseUrl = () => {
+              if (!link || !link.href) return '/plugin.php?id=dsu_amupper:pper';
+              const h = link.href;
+              if (h === 'javascript:;' || h === '#' || h === '' || h.startsWith('javascript:')) return '/plugin.php?id=dsu_amupper:pper';
+              return h;
+            };
+
             const isSigned = () => new Promise(r => {
               chrome.storage.local.get('apk_tw_signed_today', d => {
                 r(d.apk_tw_signed_today === new Date().toDateString());
@@ -101,7 +108,7 @@ class APKTwBackground {
             });
             if (await isSigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
 
-            const baseUrl = link && link.href ? link.href : '/plugin.php?id=dsu_amupper:pper';
+            const baseUrl = getBaseUrl();
 
             const urls = [
               baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (fh ? '&formhash=' + fh : ''),
