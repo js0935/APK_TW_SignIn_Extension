@@ -147,8 +147,7 @@ class APKTwBackground {
             return { success: false, error: e.message };
           }
         },
-        target: { tabId: tab.id },
-        world: 'MAIN'
+        target: { tabId: tab.id }
       });
 
       if (createdByUs) chrome.tabs.remove(tab.id).catch(() => {});
@@ -283,8 +282,7 @@ class APKTwBackground {
             return { success: false, error: `簽到失敗: ${e.message}` };
           }
         },
-        target: { tabId },
-        world: 'MAIN'
+        target: { tabId }
       });
 
       return result[0]?.result || { success: false, error: '未知錯誤' };
@@ -322,8 +320,7 @@ class APKTwBackground {
             return { success: false, error: e.message };
           }
         },
-        target: { tabId: tab.id },
-        world: 'MAIN'
+        target: { tabId: tab.id }
       });
       return result[0]?.result || { success: false, error: '執行失敗' };
     } catch (error) {
