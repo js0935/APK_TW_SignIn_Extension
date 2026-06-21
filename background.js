@@ -162,6 +162,13 @@ class APKTwBackground {
     }
   }
 
+  async checkLoginStatus() {
+    try {
+      const cookies = await chrome.cookies.getAll({ url: 'https://apk.tw/' });
+      return cookies.some(c => c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'));
+    } catch { return false; }
+  }
+
   async performAutoSignIn() {
     try {
       const settings = await this.getSettings();
@@ -172,6 +179,13 @@ class APKTwBackground {
       const signedToday = await this.isTodaySigned();
       if (signedToday) {
         return { success: true, message: '今日已簽到', alreadySigned: true };
+      }
+
+      const loggedIn = await this.checkLoginStatus();
+      if (!loggedIn) {
+        const msg = '未登入，無法自動簽到';
+        await this.addLog(msg, false);
+        return { success: false, error: msg };
       }
 
       const result = await this.signInViaAPI();

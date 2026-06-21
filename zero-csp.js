@@ -35,6 +35,13 @@
     } catch (e) { log(`寫入日誌失敗: ${e.message}`); }
   }
 
+  async function isLoggedIn() {
+    try {
+      const cookies = await chrome.cookies.getAll({ url: 'https://apk.tw/' });
+      return cookies.some(c => c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'));
+    } catch { return false; }
+  }
+
   function getFormhash() {
     const el = document.querySelector('input[name="formhash"]');
     if (el && el.value) return el.value;
@@ -69,6 +76,11 @@
 
         if (await isTodaySigned()) {
           log('今日已簽到，跳過');
+          return;
+        }
+
+        if (!await isLoggedIn()) {
+          log('未登入，跳過簽到');
           return;
         }
 
