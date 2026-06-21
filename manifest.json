@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "APK.TW 自動簽到",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "自動為 APK.TW 論壇進行每日簽到",
   "author": "Extension Developer",
   "homepage_url": "https://apk.tw",
