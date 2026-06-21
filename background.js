@@ -358,11 +358,11 @@ class APKTwBackground {
     try {
       return await chrome.storage.sync.get({
         autoSignIn: true,
-        signInTime: '09:00',
+        signInTime: '00:03',
         notifications: true
       });
     } catch {
-      return { autoSignIn: true, signInTime: '09:00', notifications: true };
+      return { autoSignIn: true, signInTime: '00:03', notifications: true };
     }
   }
 
