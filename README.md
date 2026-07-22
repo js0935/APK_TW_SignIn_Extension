@@ -1,7 +1,7 @@
 # APK.TW 自動簽到 Chrome 擴充功能
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)
-![Version](https://img.shields.io/badge/version-1.0.4-blue)
+![Version](https://img.shields.io/badge/version-1.0.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## 概述
@@ -15,7 +15,8 @@ Chrome 擴充功能，自動為 APK.TW 論壇執行每日簽到。支援排程�
 - **內容腳本簽到** — 瀏覽 APK.TW 時自動觸發
 - **狀態檢查** — 顯示登入狀態、簽到狀態、上次簽到時間
 - **通知** — 簽到成功/失敗時顯示通知
-- **多種簽到方式** — 按鈕點擊 + fetch 遞補，提高成功率
+- **無需開啟網站** — 背景隱藏分頁自動完成簽到
+- **DOM 偵測** — 直接判斷按鈕狀態，無需依賴 fetch/XHR
 
 ## 安裝
 
@@ -32,7 +33,7 @@ Chrome 擴充功能，自動為 APK.TW 論壇執行每日簽到。支援排程�
 ├── zero-csp.js         # 內容腳本（頁面載入時自動簽到）
 ├── popup.html          # 彈出視窗 HTML
 ├── popup.js            # 彈出視窗腳本
-└── icons/              # SVG 圖示
+└── icons/              # SVG + PNG 圖示
 ```
 
 ## 技術規格
@@ -41,12 +42,13 @@ Chrome 擴充功能，自動為 APK.TW 論壇執行每日簽到。支援排程�
 
 ### 簽到流程
 
-1. **排程觸發** (alarms API) → 背景檢查是否已簽到
-2. **建立隱藏分頁** (active: false) → 載入 `forum.php`
-3. **注入腳本** → 點擊 `#my_amupper` 簽到按鈕
-4. **檢查 storage** 確認簽到結果
-5. **遞補** — 若按鈕無效，嘗試直接 fetch 多種 URL 格式 (`infloat=1&ajax=1`、`ppersubmit=1`)
-6. **關閉隱藏分頁**，發送通知
+1. **排程觸發** (alarms API) → 檢查 storage 確認是否已簽到
+2. **背景建立隱藏分頁** (active: false) → 載入 `forum.php`
+3. **每秒注入腳本檢查 DOM** → 判斷 `#my_amupper` 按鈕是否存在
+   - 按鈕消失 + formhash 存在 → **今日已簽到**，直接設 storage key
+   - 按鈕存在 → **content script 自動點擊觸發簽到**
+4. **偵測 storage key** → 回報成功
+5. **關閉隱藏分頁**，發送通知
 
 ## 使用
 
@@ -69,6 +71,13 @@ Chrome 擴充功能，自動為 APK.TW 論壇執行每日簽到。支援排程�
 無需建置步驟，直接載入即可。所有檔案皆為原生 JavaScript。
 
 ## 更新日誌
+
+### v1.0.5 (2026-07-23)
+- **重寫簽到核心**：改用 DOM 注入判斷按鈕狀態，不再依賴 fetch/XHR
+- 修復 content script 在隱藏分頁中無法使用 `cookies.getAll` 導致的簽到失敗
+- 修復 `getSignInLink()` 在 `#my_amupper` 消失後誤抓導航連結的問題
+- 新增 PNG 圖示，修正 Chrome 通知不支援 SVG 的錯誤
+- 簡化背景程式碼，移除多餘的 `waitForTabLoad` / `safeExecuteScript` 方法
 
 ### v1.0.4 (2026-06-22)
 - 修復 link.href 為 `javascript:;` 或 `#` 時 fetch 使用無效 URL 導致 "Failed to fetch"
