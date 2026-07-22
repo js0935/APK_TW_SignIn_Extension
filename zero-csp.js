@@ -95,8 +95,23 @@
           return;
         }
 
-        const link = getSignInLink();
+        const primaryBtn = document.getElementById('my_amupper');
         const formhash = getFormhash();
+        const hasFh = !!(document.querySelector('input[name="formhash"]')?.value || (formhash && formhash.length > 0));
+
+        const rawText = document.body?.innerText || document.body?.textContent || '';
+        log(`formhash: ${formhash || '無'}`);
+        log(`簽到按鈕: ${primaryBtn ? '找到 (#' + primaryBtn.id + ')' : '找不到 #my_amupper'}`);
+        log(`頁面文字片段: ${rawText.slice(0, 100).replace(/\s+/g, ' ')}...`);
+
+        if (!primaryBtn && hasFh) {
+          log('找不到 #my_amupper 但 formhash 存在 → 視為今日已簽到');
+          await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+          return;
+        }
+
+        const link = primaryBtn;
+
         const getBaseUrl = () => {
           if (!link || !link.href) return ENDPOINT;
           const h = link.href;
@@ -105,18 +120,45 @@
         };
         const baseUrl = getBaseUrl();
 
+        const makeUrl = (base, param) => base + (base.includes('?') ? '&' : '?') + param + (formhash ? '&formhash=' + formhash : '');
         const urls = [
-          baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (formhash ? '&formhash=' + formhash : ''),
-          baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'ajax=1' + (formhash ? '&formhash=' + formhash : '') + '&ppersubmit=1'
+          makeUrl(baseUrl, 'infloat=1&ajax=1'),
+          makeUrl(baseUrl, 'ajax=1&ppersubmit=1')
         ];
+
+        const tryFetch = async (fullUrl) => {
+          const res = await fetch(fullUrl, { method: 'GET' });
+          return await res.text();
+        };
+
+        const tryXhr = async (fullUrl) => {
+          return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.timeout = 15000;
+            xhr.onload = () => resolve(xhr.responseText);
+            xhr.onerror = () => reject(new Error('XHR 網路錯誤'));
+            xhr.ontimeout = () => reject(new Error('XHR 逾時'));
+            xhr.open('GET', fullUrl, true);
+            xhr.send();
+          });
+        };
 
         for (const url of urls) {
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
               const fullUrl = url.startsWith('http') ? url : window.location.origin + url;
               log(`嘗試URL: ${fullUrl.replace(formhash, '***')}`);
-              const res = await fetch(fullUrl, { method: 'GET' });
-              const text = await res.text();
+              let text;
+              try {
+                text = await tryFetch(fullUrl);
+                log(`fetch 成功`);
+              } catch (fetchErr) {
+                log(`fetch 失敗 (${fetchErr.message})，嘗試 XHR`);
+                text = await tryXhr(fullUrl);
+                log(`XHR 成功`);
+              }
+              const preview = text.slice(0, 60).replace(/\s+/g, ' ');
+              log(`回應前 ${text.length} 字元: ${preview}...`);
               if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
                 log('簽到成功');
                 await addLog('內容腳本自動簽到成功', true);
@@ -135,8 +177,9 @@
               }
               break;
             } catch (e) {
+              log(`請求嘗試${attempt + 1}失敗: ${e.message}`);
               if (attempt === 1) {
-                await addLog(`fetch失敗: ${e.message} | url: ${url}`, false);
+                await addLog(`內容腳本請求失敗: ${e.message} | url: ${url}`, false);
                 return;
               }
               await new Promise(r => setTimeout(r, 1000));
@@ -147,13 +190,17 @@
         if (link) {
           log('點擊簽到按鈕');
           link.click();
-          await new Promise(r => setTimeout(r, 4000));
-          if (await isTodaySigned()) {
-            log('按鈕簽到成功');
-            await addLog('內容腳本按鈕簽到成功', true);
-            this.notify('APK.TW 簽到成功');
-            return;
+          for (let i = 0; i < 6; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            const bt = document.body?.innerText || document.body?.textContent || '';
+            if (await isTodaySigned() || bt.includes('簽到成功') || bt.includes('succ')) {
+              log('按鈕簽到成功');
+              await addLog('內容腳本按鈕簽到成功', true);
+              this.notify('APK.TW 簽到成功');
+              return;
+            }
           }
+          log('點擊按鈕後未檢測到簽到');
         }
 
         if (await isTodaySigned()) {

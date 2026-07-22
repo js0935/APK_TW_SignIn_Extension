@@ -57,118 +57,58 @@ class APKTwBackground {
   async signInViaAPI() {
     if (this._signingIn) return { success: false, error: '簽到進行中，請稍候' };
     this._signingIn = true;
-    await chrome.storage.local.set({ apk_tw_signing_in: true });
-    let createdByUs = false;
+
+    let tab;
     try {
-      let tab = (await chrome.tabs.query({ url: 'https://apk.tw/*' })).find(t => t.url?.includes('apk.tw'));
-      if (!tab) {
-        createdByUs = true;
-        tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: false });
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            chrome.tabs.onUpdated.removeListener(listener);
-            reject(new Error('分頁載入逾時'));
-          }, 15000);
-          const listener = (tabId, info) => {
-            if (tabId === tab.id && info.status === 'complete') {
-              clearTimeout(timeout);
-              chrome.tabs.onUpdated.removeListener(listener);
-              setTimeout(resolve, 1500);
-            }
-          };
-          chrome.tabs.onUpdated.addListener(listener);
-        });
+      if (await this.isTodaySigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
+      if (!await this.checkLoginStatus()) return { success: false, error: '未登入，無法簽到' };
+
+      tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: false });
+
+      const today = new Date().toDateString();
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+
+        const data = await chrome.storage.local.get(STORAGE_KEYS.SIGNED_TODAY);
+        if (data[STORAGE_KEYS.SIGNED_TODAY] === today) {
+          return { success: true, message: '簽到成功' };
+        }
+
+        try {
+          const r = await chrome.scripting.executeScript({
+            func: () => {
+              const btn = document.getElementById('my_amupper');
+              const fh = document.querySelector('input[name="formhash"]');
+              return { hasBtn: !!btn, hasFh: !!(fh && fh.value) };
+            },
+            target: { tabId: tab.id }
+          });
+          const d = r[0]?.result || {};
+          if (!d.hasBtn && d.hasFh) {
+            await chrome.storage.local.set({ [STORAGE_KEYS.SIGNED_TODAY]: new Date().toDateString() });
+            return { success: true, alreadySigned: true, message: '今日已簽到' };
+          }
+        } catch { }
       }
 
-      const result = await chrome.scripting.executeScript({
-        func: async () => {
-          try {
-            if (window.location.href.includes('plugin.php') && window.location.href.includes('dsu_amupper')) {
-              return { success: false, error: '已在簽到頁面，跳過' };
-            }
-
-            const fh = (document.querySelector('input[name="formhash"]')?.value) ||
-                       (document.documentElement.innerHTML.match(/formhash=([a-f0-9]+)/i)?.[1]) || '';
-
-            const link = document.getElementById('my_amupper') ||
-                         document.querySelector('a[href*="dsu_amupper"]') ||
-                         document.querySelector('a.amupper');
-
-            const getBaseUrl = () => {
-              if (!link || !link.href) return '/plugin.php?id=dsu_amupper:pper';
-              const h = link.href;
-              if (h === 'javascript:;' || h === '#' || h === '' || h.startsWith('javascript:')) return '/plugin.php?id=dsu_amupper:pper';
-              return h;
-            };
-
-            const isSigned = () => new Promise(r => {
-              chrome.storage.local.get('apk_tw_signed_today', d => {
-                r(d.apk_tw_signed_today === new Date().toDateString());
-              });
-            });
-            if (await isSigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
-
-            const baseUrl = getBaseUrl();
-
-            const urls = [
-              baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'infloat=1&ajax=1' + (fh ? '&formhash=' + fh : ''),
-              baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'ajax=1' + (fh ? '&formhash=' + fh : '') + '&ppersubmit=1'
-            ];
-
-            for (const url of urls) {
-              for (let attempt = 0; attempt < 2; attempt++) {
-                try {
-                  const fullUrl = url.startsWith('http') ? url : location.origin + url;
-                  const res = await fetch(fullUrl, { method: 'GET' });
-                  const text = await res.text();
-                  if (text.includes('簽到成功') || text.includes('success') || text.includes('succ')) {
-                    return { success: true, message: '簽到成功' };
-                  }
-                  if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
-                    return { success: true, alreadySigned: true, message: '今日已簽到' };
-                  }
-                  if (text.length > 0 && !text.startsWith('<!')) {
-                    return { success: true, message: text.slice(0, 100) };
-                  }
-                } catch (e) {
-                  if (attempt === 1) {
-                    return { success: false, error: `fetch失敗: ${e.message} | pageUrl: ${pageUrl} | url: ${url}` };
-                  }
-                  await new Promise(r => setTimeout(r, 1000));
-                }
-              }
-            }
-
-            if (link) {
-              link.click();
-              await new Promise(r => setTimeout(r, 4000));
-              if (await isSigned()) return { success: true, message: '簽到成功' };
-            }
-
-            return { success: false, error: '所有簽到方式皆失敗' };
-          } catch (e) {
-            return { success: false, error: e.message };
-          }
-        },
-        target: { tabId: tab.id }
-      });
-
-      if (createdByUs) chrome.tabs.remove(tab.id).catch(() => {});
-      const r = result[0]?.result || {};
-      if (!r.success && !r.error) r.error = r.message || '簽到失敗';
-      return r;
+      return { success: false, error: '簽到超過 30 秒無結果' };
     } catch (error) {
-      return { success: false, error: `簽到請求失敗: ${error.message}` };
+      return { success: false, error: `簽到失敗: ${error.message}` };
     } finally {
       this._signingIn = false;
-      chrome.storage.local.remove('apk_tw_signing_in').catch(() => {});
+      if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
     }
   }
 
   async checkLoginStatus() {
     try {
       const cookies = await chrome.cookies.getAll({ url: 'https://apk.tw/' });
-      return cookies.some(c => c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'));
+      const hasSession = cookies.some(c => c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'));
+      if (!hasSession) {
+        const names = cookies.map(c => c.name).join(', ');
+        console.warn(`${LOG_PREFIX} Cookie 檢查失敗，現有 cookie: ${names || '無'}`);
+      }
+      return hasSession;
     } catch { return false; }
   }
 
@@ -192,12 +132,13 @@ class APKTwBackground {
       }
 
       const result = await this.signInViaAPI();
-      await this.addLog(result.success ? '自動簽到成功' : `自動簽到失敗: ${result.error || result.message || '未知錯誤'}`, result.success);
+
+      await this.addLog(result.success ? '自動簽到成功' : `自動簽到失敗: ${result.error || '未知錯誤'}`, result.success);
 
       if (result.success && settings.notifications) {
         chrome.notifications.create({
           type: 'basic',
-          iconUrl: 'icons/icon48.svg',
+          iconUrl: chrome.runtime.getURL('icons/icon48.png'),
           title: 'APK.TW 自動簽到',
           message: result.alreadySigned ? '今日已簽到' : '簽到成功！'
         });
