@@ -59,14 +59,21 @@ class APKTwBackground {
     this._signingIn = true;
 
     let tab;
+    let prevTabId = null;
     try {
       if (await this.isTodaySigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
       if (!await this.checkLoginStatus()) return { success: false, error: '未登入，無法簽到' };
 
-      tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: false });
+      const prevTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (prevTabs[0]) prevTabId = prevTabs[0].id;
+
+      tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: true });
+      await new Promise(r => setTimeout(r, 300));
+
+      if (prevTabId) chrome.tabs.update(prevTabId, { active: true }).catch(() => {});
 
       const today = new Date().toDateString();
-      for (let i = 0; i < 45; i++) {
+      for (let i = 0; i < 25; i++) {
         await new Promise(r => setTimeout(r, 1000));
 
         const data = await chrome.storage.local.get(STORAGE_KEYS.SIGNED_TODAY);
@@ -92,7 +99,7 @@ class APKTwBackground {
         } catch { }
       }
 
-      return { success: false, error: '簽到超過 45 秒無結果' };
+      return { success: false, error: '簽到超過 25 秒無結果' };
     } catch (error) {
       return { success: false, error: `簽到失敗: ${error.message}` };
     } finally {
