@@ -64,16 +64,16 @@ class APKTwBackground {
       if (await this.isTodaySigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
       if (!await this.checkLoginStatus()) return { success: false, error: '未登入，無法簽到' };
 
+      // 先用分頁方式嘗試（DOM 偵測 + content script）
       const prevTabs = await chrome.tabs.query({ active: true, currentWindow: true });
       if (prevTabs[0]) prevTabId = prevTabs[0].id;
 
       tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: true });
       await new Promise(r => setTimeout(r, 300));
-
       if (prevTabId) chrome.tabs.update(prevTabId, { active: true }).catch(() => {});
 
       const today = new Date().toDateString();
-      for (let i = 0; i < 25; i++) {
+      for (let i = 0; i < 12; i++) {
         await new Promise(r => setTimeout(r, 1000));
 
         const data = await chrome.storage.local.get(STORAGE_KEYS.SIGNED_TODAY);
@@ -99,12 +99,53 @@ class APKTwBackground {
         } catch { }
       }
 
-      return { success: false, error: '簽到超過 25 秒無結果' };
+      // 分頁逾時 → 改用直接 fetch（不依賴分頁）
+      const loginok = await this.checkLoginStatus();
+      if (!loginok) return { success: false, error: '未登入，無法簽到' };
+      const ok = await this.fetchCheckSignIn();
+      if (ok) return { success: true, message: '簽到成功' };
+
+      return { success: false, error: '簽到無結果' };
     } catch (error) {
       return { success: false, error: `簽到失敗: ${error.message}` };
     } finally {
       this._signingIn = false;
       if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  }
+
+  async fetchCheckSignIn() {
+    try {
+      const htmlRes = await fetch('https://apk.tw/forum.php', { credentials: 'include' });
+      const html = await htmlRes.text();
+      const fhMatch = html.match(/formhash=([a-f0-9]+)/i);
+      const formhash = fhMatch ? fhMatch[1] : '';
+      if (!formhash) { console.log('[APK.TW] fetch 無法取得 formhash'); return false; }
+
+      const url = `https://apk.tw/plugin.php?id=dsu_amupper:pper&infloat=1&ajax=1&formhash=${formhash}`;
+      const res = await fetch(url, { credentials: 'include' });
+      const text = await res.text();
+
+      if (text.includes('簽到成功') || text.includes('succ') || text.includes('success')) {
+        await this.markTodaySigned();
+        console.log('[APK.TW] fetch 簽到成功');
+        return true;
+      }
+      if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+        await this.markTodaySigned();
+        console.log('[APK.TW] fetch 已簽到');
+        return true;
+      }
+      if (text.length > 0 && !text.startsWith('<!')) {
+        await this.markTodaySigned();
+        console.log('[APK.TW] fetch 非HTML回應視為成功');
+        return true;
+      }
+      console.log('[APK.TW] fetch 回應:', text.slice(0, 120));
+      return false;
+    } catch (e) {
+      console.log('[APK.TW] fetch 失敗:', e.message);
+      return false;
     }
   }
 
