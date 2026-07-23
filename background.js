@@ -66,7 +66,7 @@ class APKTwBackground {
       tab = await chrome.tabs.create({ url: 'https://apk.tw/forum.php', active: false });
 
       const today = new Date().toDateString();
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 45; i++) {
         await new Promise(r => setTimeout(r, 1000));
 
         const data = await chrome.storage.local.get(STORAGE_KEYS.SIGNED_TODAY);
@@ -77,9 +77,10 @@ class APKTwBackground {
         try {
           const r = await chrome.scripting.executeScript({
             func: () => {
+              if (!document.body) return { loading: true };
               const btn = document.getElementById('my_amupper');
               const fh = document.querySelector('input[name="formhash"]');
-              return { hasBtn: !!btn, hasFh: !!(fh && fh.value) };
+              return { hasBtn: !!btn, hasFh: !!(fh && fh.value), loading: false };
             },
             target: { tabId: tab.id }
           });
@@ -91,7 +92,7 @@ class APKTwBackground {
         } catch { }
       }
 
-      return { success: false, error: '簽到超過 30 秒無結果' };
+      return { success: false, error: '簽到超過 45 秒無結果' };
     } catch (error) {
       return { success: false, error: `簽到失敗: ${error.message}` };
     } finally {
