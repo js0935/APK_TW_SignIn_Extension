@@ -36,19 +36,18 @@ class APKTwBackground {
 
   async setupAlarms() {
     try {
-      chrome.alarms.clearAll(async () => {
-        const settings = await this.getSettings();
-        const [hours, minutes] = settings.signInTime.split(':').map(Number);
-        const now = new Date();
-        const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+      await chrome.alarms.clearAll();
+      const settings = await this.getSettings();
+      const [hours, minutes] = settings.signInTime.split(':').map(Number);
+      const now = new Date();
+      const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
 
-        chrome.alarms.create('dailySignIn', {
-          when: target.getTime(),
-          periodInMinutes: 24 * 60
-        });
-
-        console.log(`${LOG_PREFIX} 定時任務已設置於 ${settings.signInTime}`);
+      await chrome.alarms.create('dailySignIn', {
+        when: target.getTime(),
+        periodInMinutes: 24 * 60
       });
+
+      console.log(`${LOG_PREFIX} 定時任務已設置於 ${settings.signInTime}`);
     } catch (error) {
       console.error(`${LOG_PREFIX} 定時任務設置失敗:`, error);
     }
