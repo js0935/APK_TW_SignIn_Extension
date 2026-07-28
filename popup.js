@@ -14,7 +14,7 @@ class APKTwPopup {
   }
 
   cacheDOM() {
-    const ids = ['check-status', 'manual-signin', 'test-auto-signin', 'open-apk',
+    const ids = ['check-status', 'manual-signin', 'claim-weekly', 'test-auto-signin', 'open-apk',
                  'login-status', 'signin-status', 'weekly-status', 'last-signin',
                  'auto-signin', 'signin-time', 'notifications', 'logs-container'];
     for (const id of ids) {
