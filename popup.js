@@ -105,6 +105,7 @@ class APKTwPopup {
 
       const logs = await this.getLogs();
       this.updateLogsUI(logs);
+      setTimeout(() => this.checkStatus(), 2000);
     } catch (error) {
       this.showError(`測試失敗: ${error.message}`);
     } finally {
