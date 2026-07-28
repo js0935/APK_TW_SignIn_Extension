@@ -325,7 +325,10 @@ class APKTwBackground {
       let weeklyClaimed = await this.isWeeklyTaskClaimed();
       if (hasAuthCookie && !weeklyClaimed) {
         try {
-          const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 5000);
+          const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include', signal: ctrl.signal });
+          clearTimeout(to);
           const viewText = await viewRes.text();
           if (viewText.includes('已領取') || viewText.includes('已完成') || viewText.includes('已經')) {
             await this.markWeeklyTaskClaimed();
