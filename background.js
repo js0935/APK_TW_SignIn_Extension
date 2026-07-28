@@ -2,7 +2,8 @@ const LOG_PREFIX = '[APK.TW]';
 const STORAGE_KEYS = {
   SETTINGS: 'apk_tw_settings',
   LOGS: 'apk_tw_logs',
-  SIGNED_TODAY: 'apk_tw_signed_today'
+  SIGNED_TODAY: 'apk_tw_signed_today',
+  WEEKLY_CLAIMED: 'apk_tw_weekly_claimed'
 };
 
 class APKTwBackground {
@@ -148,6 +149,34 @@ class APKTwBackground {
     }
   }
 
+  async claimWeeklyTask() {
+    if (await this.isWeeklyTaskClaimed()) {
+      console.log('[APK.TW] 本週已領取每週積分');
+      return { claimed: true, alreadyClaimed: true };
+    }
+    try {
+      await fetch('https://apk.tw/home.php?mod=task&do=apply&id=7', { credentials: 'include' });
+
+      const res = await fetch('https://apk.tw/home.php?mod=task&do=draw&id=7', { credentials: 'include' });
+      const text = await res.text();
+
+      if (text.includes('已領取') || text.includes('已完成') || text.includes('已經') ||
+          text.includes('succ') || text.includes('success')) {
+        await this.markWeeklyTaskClaimed();
+        console.log('[APK.TW] 每週積分已領取');
+        return { claimed: true };
+      }
+      if (text.includes('需要先登錄')) {
+        return { claimed: false, error: '未登入' };
+      }
+      console.log('[APK.TW] 每週積分領取回應:', text.slice(0, 120));
+      return { claimed: false, error: '領取無結果' };
+    } catch (e) {
+      console.log('[APK.TW] 每週積分領取失敗:', e.message);
+      return { claimed: false, error: e.message };
+    }
+  }
+
   async checkLoginStatus() {
     try {
       const cookies = await chrome.cookies.getAll({ url: 'https://apk.tw/' });
@@ -181,6 +210,17 @@ class APKTwBackground {
 
       const result = await this.signInViaAPI();
 
+      // 簽到成功後順便領取每週積分
+      let weeklyResult = null;
+      if (result.success) {
+        weeklyResult = await this.claimWeeklyTask();
+        if (weeklyResult.claimed) {
+          console.log(`${LOG_PREFIX} 每週積分已領取${weeklyResult.alreadyClaimed ? '（本週已領）' : ''}`);
+        } else {
+          console.warn(`${LOG_PREFIX} 每週積分領取失敗: ${weeklyResult.error || '未知'}`);
+        }
+      }
+
       await this.addLog(result.success ? '自動簽到成功' : `自動簽到失敗: ${result.error || '未知錯誤'}`, result.success);
 
       if (result.success && settings.notifications) {
@@ -209,6 +249,23 @@ class APKTwBackground {
 
   async markTodaySigned() {
     await chrome.storage.local.set({ [STORAGE_KEYS.SIGNED_TODAY]: new Date().toDateString() });
+  }
+
+  getWeekId() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const diff = Math.floor((now - start + (start.getTimezoneOffset() - now.getTimezoneOffset()) * 60000) / 86400000);
+    const week = Math.ceil((diff + start.getDay() + 1) / 7);
+    return `${now.getFullYear()}-W${String(week).padStart(2, '0')}`;
+  }
+
+  async isWeeklyTaskClaimed() {
+    const data = await chrome.storage.local.get(STORAGE_KEYS.WEEKLY_CLAIMED);
+    return data[STORAGE_KEYS.WEEKLY_CLAIMED] === this.getWeekId();
+  }
+
+  async markWeeklyTaskClaimed() {
+    await chrome.storage.local.set({ [STORAGE_KEYS.WEEKLY_CLAIMED]: this.getWeekId() });
   }
 
   handleMessage(message, sender, sendResponse) {
@@ -252,6 +309,7 @@ class APKTwBackground {
       return {
         isLoggedIn: hasAuthCookie,
         isSignedIn: signedToday,
+        weeklyClaimed: await this.isWeeklyTaskClaimed(),
         canSignIn: hasAuthCookie && !signedToday,
         lastSignInTime: lastLog?.timestamp || null,
         message: !hasAuthCookie ? '請先登入' : (signedToday ? '今日已簽到' : '可簽到')

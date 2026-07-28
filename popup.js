@@ -15,7 +15,7 @@ class APKTwPopup {
 
   cacheDOM() {
     const ids = ['check-status', 'manual-signin', 'test-auto-signin', 'open-apk',
-                 'login-status', 'signin-status', 'last-signin',
+                 'login-status', 'signin-status', 'weekly-status', 'last-signin',
                  'auto-signin', 'signin-time', 'notifications', 'logs-container'];
     for (const id of ids) {
       this.el[id.replace(/-(.)/g, (_, c) => c.toUpperCase())] = document.getElementById(id);
@@ -151,6 +151,18 @@ class APKTwPopup {
     } else {
       signInStatus.textContent = '不可簽到';
       signInStatus.className = 'status-value status-error';
+    }
+
+    const weeklyStatus = this.el.weeklyStatus;
+    if (!data.isLoggedIn) {
+      weeklyStatus.textContent = '未登入';
+      weeklyStatus.className = 'status-value status-error';
+    } else if (data.weeklyClaimed) {
+      weeklyStatus.textContent = '本週已領';
+      weeklyStatus.className = 'status-value status-success';
+} else {
+      weeklyStatus.textContent = '待領取';
+      weeklyStatus.className = 'status-value status-warning';
     }
 
     const lastSignIn = this.el.lastSignin;
