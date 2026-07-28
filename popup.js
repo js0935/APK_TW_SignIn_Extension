@@ -25,6 +25,7 @@ class APKTwPopup {
   bindEvents() {
     this.el.checkStatus.addEventListener('click', () => this.checkStatus());
     this.el.manualSignin.addEventListener('click', () => this.manualSignIn());
+    this.el.claimWeekly.addEventListener('click', () => this.claimWeeklyTask());
     this.el.testAutoSignin.addEventListener('click', () => this.testAutoSignIn());
     this.el.openApk.addEventListener('click', () => this.openAPKTw());
     this.el.autoSignin.addEventListener('change', () => this.saveSettings());
@@ -120,6 +121,29 @@ class APKTwPopup {
       window.close();
     } catch (error) {
       this.showError(`打開網站失敗: ${error.message}`);
+    }
+  }
+
+  async claimWeeklyTask() {
+    const btn = this.el.claimWeekly;
+    const originalText = btn.textContent;
+    try {
+      btn.textContent = '領取中...';
+      btn.disabled = true;
+
+      const res = await this.sendMessage({ action: 'claimWeeklyTask' });
+      if (res && res.claimed) {
+        this.showSuccess(res.alreadyClaimed ? '本週已領取' : '每週積分領取成功！');
+      } else {
+        this.showError(`領取失敗: ${res?.error || '未知錯誤'}`);
+      }
+
+      setTimeout(() => this.checkStatus(), 1500);
+    } catch (error) {
+      this.showError(`領取失敗: ${error.message}`);
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
     }
   }
 

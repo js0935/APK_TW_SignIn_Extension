@@ -155,21 +155,35 @@ class APKTwBackground {
       return { claimed: true, alreadyClaimed: true };
     }
     try {
+      // 先查看任務頁面狀態
+      const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
+      const viewText = await viewRes.text();
+
+      // 頁面已顯示領取完成 → 直接標記
+      if (viewText.includes('已領取') || viewText.includes('已完成') || viewText.includes('已經')) {
+        await this.markWeeklyTaskClaimed();
+        console.log('[APK.TW] 每週積分已領取（頁面確認）');
+        return { claimed: true, alreadyClaimed: true };
+      }
+
+      // 申請 → 領取
       await fetch('https://apk.tw/home.php?mod=task&do=apply&id=7', { credentials: 'include' });
+      await fetch('https://apk.tw/home.php?mod=task&do=draw&id=7', { credentials: 'include' });
 
-      const res = await fetch('https://apk.tw/home.php?mod=task&do=draw&id=7', { credentials: 'include' });
-      const text = await res.text();
+      // 重新檢查任務頁面確認狀態
+      const checkRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
+      const checkText = await checkRes.text();
 
-      if (text.includes('已領取') || text.includes('已完成') || text.includes('已經') ||
-          text.includes('succ') || text.includes('success')) {
+      if (checkText.includes('已領取') || checkText.includes('已完成') || checkText.includes('已經') ||
+          checkText.includes('succ') || checkText.includes('success')) {
         await this.markWeeklyTaskClaimed();
         console.log('[APK.TW] 每週積分已領取');
         return { claimed: true };
       }
-      if (text.includes('需要先登錄')) {
+      if (checkText.includes('需要先登錄')) {
         return { claimed: false, error: '未登入' };
       }
-      console.log('[APK.TW] 每週積分領取回應:', text.slice(0, 120));
+      console.log('[APK.TW] 每週積分領取後頁面:', checkText.slice(0, 120));
       return { claimed: false, error: '領取無結果' };
     } catch (e) {
       console.log('[APK.TW] 每週積分領取失敗:', e.message);
@@ -283,7 +297,8 @@ class APKTwBackground {
       manualSignIn: () => this.manualSignIn(),
       manualSignInWithTab: () => this.manualSignInWithTab(message.tabId),
       executeSafeSignIn: () => this.executeSafeSignIn(),
-      executeAutoSignIn: () => this.performAutoSignIn()
+      executeAutoSignIn: () => this.performAutoSignIn(),
+      claimWeeklyTask: () => this.claimWeeklyTask()
     };
 
     const fn = handler[message.action];
@@ -306,10 +321,23 @@ class APKTwBackground {
         (c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'))
       );
 
+      // 即時檢查網站上每週積分是否已領取
+      let weeklyClaimed = await this.isWeeklyTaskClaimed();
+      if (hasAuthCookie && !weeklyClaimed) {
+        try {
+          const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
+          const viewText = await viewRes.text();
+          if (viewText.includes('已領取') || viewText.includes('已完成') || viewText.includes('已經')) {
+            await this.markWeeklyTaskClaimed();
+            weeklyClaimed = true;
+          }
+        } catch { }
+      }
+
       return {
         isLoggedIn: hasAuthCookie,
         isSignedIn: signedToday,
-        weeklyClaimed: await this.isWeeklyTaskClaimed(),
+        weeklyClaimed: weeklyClaimed,
         canSignIn: hasAuthCookie && !signedToday,
         lastSignInTime: lastLog?.timestamp || null,
         message: !hasAuthCookie ? '請先登入' : (signedToday ? '今日已簽到' : '可簽到')
