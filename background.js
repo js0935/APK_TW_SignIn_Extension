@@ -131,6 +131,12 @@ class APKTwBackground {
       const res = await fetch(url, { credentials: 'include' });
       const text = await res.text();
 
+      const errorWords = ['失敗', '錯誤', '無效', '請先登入', '請重新登入', '登錄', 'denied', 'expired', '非法'];
+      if (errorWords.some(w => text.includes(w))) {
+        console.log('[APK.TW] fetch 回應為錯誤:', text.slice(0, 120));
+        await chrome.storage.local.set({ apk_tw_diag_reply: text.slice(0, 300) });
+        return null;
+      }
       if (text.includes('簽到成功') || text.includes('succ') || text.includes('success')) {
         await this.markTodaySigned();
         console.log('[APK.TW] fetch 簽到成功');
@@ -141,51 +147,54 @@ class APKTwBackground {
         console.log('[APK.TW] fetch 已簽到');
         return 'signed';
       }
-      const errorWords = ['失敗', '錯誤', '無效', '請先登入', '請重新登入', '登錄', 'denied', 'expired', '非法'];
-      if (errorWords.some(w => text.includes(w))) {
-        console.log('[APK.TW] fetch 回應為錯誤:', text.slice(0, 120));
-        return null;
+      // dsu_amupper 已簽到時只回傳 wb.gif 圖示的 XML，無任何文字（未登入/錯誤會含上述錯誤關鍵字）
+      if (text.includes('wb.gif')) {
+        await this.markTodaySigned();
+        console.log('[APK.TW] fetch 已簽到（wb.gif 圖示回應）');
+        return 'signed';
       }
       console.log('[APK.TW] fetch 回應:', text.slice(0, 120));
+      await chrome.storage.local.set({ apk_tw_diag_reply: text.slice(0, 300) });
       return null;
     } catch (e) {
       console.log('[APK.TW] fetch 失敗:', e.message);
+      await chrome.storage.local.set({ apk_tw_diag_reply: `fetch 例外: ${e.message}` });
       return null;
     }
   }
 
   async claimWeeklyTask() {
-    if (await this.isWeeklyTaskClaimed()) {
-      console.log('[APK.TW] 本週已領取每週積分');
-      return { claimed: true, alreadyClaimed: true };
-    }
     try {
-      // 先查看任務頁面狀態
+      // 先抓任務頁面，以網站實際狀態為準（不直接信任 storage 標記，避免舊誤標卡死）
       const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
       const viewText = await viewRes.text();
 
-      // 頁面已顯示領取完成 → 直接標記
-      if (viewText.includes('已領取') || viewText.includes('已完成') || viewText.includes('已經')) {
-        await this.markWeeklyTaskClaimed();
+      // 未登入
+      if (viewText.includes('需要先登錄') || viewText.includes('請先登錄')) {
+        return { claimed: false, error: '未登入' };
+      }
+
+      // 頁面無申請/領取按鈕 → 已領取（Discuz! 已領取狀態不顯示任務按鈕）
+      if (!viewText.includes('do=apply') && !viewText.includes('do=draw')) {
+        if (!await this.isWeeklyTaskClaimed()) await this.markWeeklyTaskClaimed();
         console.log('[APK.TW] 每週積分已領取（頁面確認）');
         return { claimed: true, alreadyClaimed: true };
       }
 
-      // 申請 → 領取
+      // 有按鈕 → 執行申請 → 領取
       await fetch('https://apk.tw/home.php?mod=task&do=apply&id=7', { credentials: 'include' });
       await fetch('https://apk.tw/home.php?mod=task&do=draw&id=7', { credentials: 'include' });
+      await this.markWeeklyTaskClaimed();
 
       // 重新檢查任務頁面確認狀態
       const checkRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include' });
       const checkText = await checkRes.text();
 
-      if (checkText.includes('已領取') || checkText.includes('已完成') || checkText.includes('已經') ||
-          checkText.includes('succ') || checkText.includes('success')) {
-        await this.markWeeklyTaskClaimed();
+      if (!checkText.includes('do=apply') && !checkText.includes('do=draw')) {
         console.log('[APK.TW] 每週積分已領取');
         return { claimed: true };
       }
-      if (checkText.includes('需要先登錄')) {
+      if (checkText.includes('需要先登錄') || checkText.includes('請先登錄')) {
         return { claimed: false, error: '未登入' };
       }
       console.log('[APK.TW] 每週積分領取後頁面:', checkText.slice(0, 120));
@@ -220,9 +229,11 @@ class APKTwBackground {
         // storage 顯示已簽到，但仍驗證真實狀態（避免之前誤標）
         const verify = await this.fetchCheckSignIn();
         if (verify === 'signed') {
+          await this.claimWeeklyTask();
           return { success: true, message: '今日已簽到', alreadySigned: true };
         }
         if (verify === 'success') {
+          await this.claimWeeklyTask();
           return { success: true, message: '簽到成功' };
         }
         // 驗證失敗：可能 storage 被誤標，清除後重新簽到
@@ -327,7 +338,7 @@ class APKTwBackground {
 
   async checkSignInStatus() {
     try {
-      const signedToday = await this.isTodaySigned();
+      let signedToday = await this.isTodaySigned();
       const logs = await this.getLogs();
       const lastLog = logs.find(l => l.success);
 
@@ -336,21 +347,25 @@ class APKTwBackground {
         (c.name.includes('auth') || c.name.includes('saltkey') || c.name.includes('sid') || c.name.includes('uid'))
       );
 
-      // 即時檢查網站上每週積分是否已領取
-      let weeklyClaimed = await this.isWeeklyTaskClaimed();
-      if (hasAuthCookie && !weeklyClaimed) {
-        try {
-          const ctrl = new AbortController();
-          const to = setTimeout(() => ctrl.abort(), 5000);
-          const viewRes = await fetch('https://apk.tw/home.php?mod=task&do=view&id=7', { credentials: 'include', signal: ctrl.signal });
-          clearTimeout(to);
-          const viewText = await viewRes.text();
-          if (viewText.includes('已領取') || viewText.includes('已完成') || viewText.includes('已經')) {
-            await this.markWeeklyTaskClaimed();
-            weeklyClaimed = true;
+      // 即時從網站驗證真實狀態（不信任 storage）
+      if (hasAuthCookie) {
+        // 簽到：未標記時用 dsu_amupper API 權威驗證（已簽到則補標，未簽到則順手簽到）
+        if (!signedToday) {
+          const verify = await this.fetchCheckSignIn();
+          if (verify === 'signed' || verify === 'success') {
+            await this.markTodaySigned();
+            signedToday = true;
           }
-        } catch { }
+        }
+
+        // 每週積分：以網站狀態為準自動補領（claimWeeklyTask 內部會判斷是否已領）
+        const wres = await this.claimWeeklyTask();
+        if (wres.claimed) {
+          console.log(`[APK.TW] 檢查時自動補領每週積分${wres.alreadyClaimed ? '（原本即已領）' : ''}`);
+        }
       }
+
+      const weeklyClaimed = await this.isWeeklyTaskClaimed();
 
       return {
         isLoggedIn: hasAuthCookie,

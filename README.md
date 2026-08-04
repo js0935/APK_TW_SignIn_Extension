@@ -1,7 +1,7 @@
 # APK.TW 自動簽到 Chrome 擴充功能
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)
-![Version](https://img.shields.io/badge/version-1.0.7-blue)
+![Version](https://img.shields.io/badge/version-1.0.8-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## 概述
@@ -76,6 +76,11 @@ Chrome 擴充功能，自動為 APK.TW 論壇執行每日簽到與每週積分�
 無需建置步驟，直接載入即可。所有檔案皆為原生 JavaScript。
 
 ## 更新日誌
+
+### v1.0.8 (2026-08-05)
+- **修復「顯示可簽到但實際已簽到」** — 檢查狀態時改用 `dsu_amupper` API 權威驗證（讀伺服器真實回應），不再靠頁面按鈕猜測；已簽到會自動補回 storage 標記
+- **修復「待領取但沒自動領積分」** — 檢查狀態時若每週積分未領會自動領取；「已簽到」早退路徑也不再漏領積分
+- **領取改以網站為準** — `claimWeeklyTask` 不再直接信任 storage 標記（避免舊版誤標卡死），改為抓取任務頁面判斷：有申請/領取按鈕就執行領取，無按鈕才是已領取
 
 ### v1.0.7 (2026-08-04)
 - **修復「誤判已簽到」** — 移除寬鬆的「非 HTML 回應視為成功」規則，改用明確成功/錯誤關鍵字判定

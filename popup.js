@@ -55,6 +55,14 @@ class APKTwPopup {
       const res = await this.sendMessage({ action: 'checkSignInStatus' });
       if (res && !res.error) {
         this.updateStatusUI(res);
+        if (!res.isSignedIn) {
+          try {
+            const diag = await chrome.storage.local.get('apk_tw_diag_reply');
+            const text = diag.apk_tw_diag_reply;
+            const display = text && !text.startsWith('fetch 例外') ? `簽到請求未命中預期關鍵字，實際回應：\n${text}` : text;
+            if (display) this.showNotification(display, 'error');
+          } catch { }
+        }
       } else {
         this.showError(res?.error || '檢查狀態失敗');
       }
