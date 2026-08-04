@@ -105,8 +105,15 @@
         log(`頁面文字片段: ${rawText.slice(0, 100).replace(/\s+/g, ' ')}...`);
 
         if (!primaryBtn && hasFh) {
-          log('找不到 #my_amupper 但 formhash 存在 → 視為今日已簽到');
-          await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
+          log('找不到 #my_amupper 但 formhash 存在，無法確認是否已簽到，改用更廣的按鈕搜尋');
+          const broadBtn = document.querySelector('a[href*="dsu_amupper"]') || document.querySelector('a.amupper') ||
+            document.querySelector('[onclick*="amupper"]') || document.querySelector('a[href*="amupper"]');
+          if (broadBtn) {
+            log('找到替代簽到按鈕，點擊');
+            broadBtn.click();
+          } else {
+            log('完全找不到簽到按鈕，交由 fetch 遞補判斷');
+          }
           return;
         }
 
@@ -165,16 +172,17 @@
                 this.notify('APK.TW 簽到成功');
                 return;
               }
-              if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+              if (text.includes('已簽') || text.includes('already') || text.includes('重複簽到')) {
                 log('今日已簽到');
                 await chrome.storage.local.set({ [SIGNED_KEY]: new Date().toDateString() });
                 return;
               }
-              if (text.length > 0 && !text.startsWith('<!')) {
-                log('非HTML回應，視為成功');
-                await addLog('內容腳本簽到成功', true);
+              const errorWords = ['失敗', '錯誤', '無效', '請先登入', '請重新登入', '登錄', 'denied', 'expired', '非法'];
+              if (errorWords.some(w => text.includes(w))) {
+                log(`回應為錯誤: ${text.slice(0, 60)}`);
                 return;
               }
+              log(`回應無法判定: ${text.slice(0, 60)}`);
               break;
             } catch (e) {
               log(`請求嘗試${attempt + 1}失敗: ${e.message}`);

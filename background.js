@@ -61,7 +61,6 @@ class APKTwBackground {
     let tab;
     let prevTabId = null;
     try {
-      if (await this.isTodaySigned()) return { success: true, alreadySigned: true, message: '今日已簽到' };
       if (!await this.checkLoginStatus()) return { success: false, error: '未登入，無法簽到' };
 
       // 先用分頁方式嘗試（DOM 偵測 + content script）
@@ -92,19 +91,25 @@ class APKTwBackground {
             target: { tabId: tab.id }
           });
           const d = r[0]?.result || {};
-          if (!d.hasBtn && d.hasFh) {
-            await chrome.storage.local.set({ [STORAGE_KEYS.SIGNED_TODAY]: new Date().toDateString() });
-            return { success: true, alreadySigned: true, message: '今日已簽到' };
+          if (d.hasBtn && d.hasFh) {
+            await chrome.scripting.executeScript({
+              func: () => {
+                const btn = document.getElementById('my_amupper');
+                if (btn) { btn.click(); return true; }
+                return false;
+              },
+              target: { tabId: tab.id }
+            });
           }
         } catch { }
       }
 
-      // 分頁逾時 → 改用直接 fetch（不依賴分頁）
+      // 分頁逾時 → 改用直接 fetch（不依賴分頁，權威驗證）
       const loginok = await this.checkLoginStatus();
       if (!loginok) return { success: false, error: '未登入，無法簽到' };
-      const ok = await this.fetchCheckSignIn();
-      if (ok) return { success: true, message: '簽到成功' };
-
+      const result = await this.fetchCheckSignIn();
+      if (result === 'success') return { success: true, message: '簽到成功' };
+      if (result === 'signed') return { success: true, alreadySigned: true, message: '今日已簽到' };
       return { success: false, error: '簽到無結果' };
     } catch (error) {
       return { success: false, error: `簽到失敗: ${error.message}` };
@@ -120,7 +125,7 @@ class APKTwBackground {
       const html = await htmlRes.text();
       const fhMatch = html.match(/formhash=([a-f0-9]+)/i);
       const formhash = fhMatch ? fhMatch[1] : '';
-      if (!formhash) { console.log('[APK.TW] fetch 無法取得 formhash'); return false; }
+      if (!formhash) { console.log('[APK.TW] fetch 無法取得 formhash'); return null; }
 
       const url = `https://apk.tw/plugin.php?id=dsu_amupper:pper&infloat=1&ajax=1&formhash=${formhash}`;
       const res = await fetch(url, { credentials: 'include' });
@@ -129,23 +134,23 @@ class APKTwBackground {
       if (text.includes('簽到成功') || text.includes('succ') || text.includes('success')) {
         await this.markTodaySigned();
         console.log('[APK.TW] fetch 簽到成功');
-        return true;
+        return 'success';
       }
-      if (text.includes('已簽') || text.includes('already') || text.includes('重新')) {
+      if (text.includes('已簽') || text.includes('already') || text.includes('重複簽到') || text.includes('重複領取')) {
         await this.markTodaySigned();
         console.log('[APK.TW] fetch 已簽到');
-        return true;
+        return 'signed';
       }
-      if (text.length > 0 && !text.startsWith('<!')) {
-        await this.markTodaySigned();
-        console.log('[APK.TW] fetch 非HTML回應視為成功');
-        return true;
+      const errorWords = ['失敗', '錯誤', '無效', '請先登入', '請重新登入', '登錄', 'denied', 'expired', '非法'];
+      if (errorWords.some(w => text.includes(w))) {
+        console.log('[APK.TW] fetch 回應為錯誤:', text.slice(0, 120));
+        return null;
       }
       console.log('[APK.TW] fetch 回應:', text.slice(0, 120));
-      return false;
+      return null;
     } catch (e) {
       console.log('[APK.TW] fetch 失敗:', e.message);
-      return false;
+      return null;
     }
   }
 
@@ -212,7 +217,17 @@ class APKTwBackground {
 
       const signedToday = await this.isTodaySigned();
       if (signedToday) {
-        return { success: true, message: '今日已簽到', alreadySigned: true };
+        // storage 顯示已簽到，但仍驗證真實狀態（避免之前誤標）
+        const verify = await this.fetchCheckSignIn();
+        if (verify === 'signed') {
+          return { success: true, message: '今日已簽到', alreadySigned: true };
+        }
+        if (verify === 'success') {
+          return { success: true, message: '簽到成功' };
+        }
+        // 驗證失敗：可能 storage 被誤標，清除後重新簽到
+        console.warn(`${LOG_PREFIX} storage 標記已簽到但驗證失敗，清除標記重新簽到`);
+        await chrome.storage.local.remove(STORAGE_KEYS.SIGNED_TODAY);
       }
 
       const loggedIn = await this.checkLoginStatus();
